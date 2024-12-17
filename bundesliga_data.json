@@ -1,0 +1,184 @@
+import requests
+from bs4 import BeautifulSoup
+import json
+import time
+from datetime import datetime
+import logging
+import os
+from typing import Dict, List, Optional
+
+class GermanFootballScraper:
+    def __init__(self):
+        self.base_url = "https://fbref.com"
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        # Verzeichnis für Daten
+        self.data_dir = "german_football_data"
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
+
+        # Logging einrichten
+        logging.basicConfig(
+            filename=f'{self.data_dir}/scraper.log',
+            level=logging.INFO,
+            format='%(asctime)s - %(message)s'
+        )
+
+        # Saisons definieren
+        self.seasons = ["2024-2025", "2023-2024"]
+        
+        # Teams nach Saisons und Ligen
+        self.teams_by_season = {
+            "2024-2025": {
+                "bundesliga": {
+                    'bayern': {'id': '054efa67', 'name': 'Bayern München'},
+                    'leverkusen': {'id': 'c7a9f859', 'name': 'Bayer Leverkusen'},
+                    'stuttgart': {'id': '598bc722', 'name': 'VfB Stuttgart'},
+                    'dortmund': {'id': 'add6f034', 'name': 'Borussia Dortmund'},
+                    'leipzig': {'id': 'acbb6a5b', 'name': 'RB Leipzig'},
+                    'frankfurt': {'id': '4a88b448', 'name': 'Eintracht Frankfurt'},
+                    'bremen': {'id': '62add3bf', 'name': 'Werder Bremen'},
+                    'hoffenheim': {'id': '033ea6b8', 'name': 'TSG Hoffenheim'},
+                    'freiburg': {'id': 'a486e511', 'name': 'SC Freiburg'},
+                    'augsburg': {'id': '0cdc4311', 'name': 'FC Augsburg'},
+                    'mgladbach': {'id': '32f3ee20', 'name': 'Borussia M.Gladbach'},
+                    'bochum': {'id': '5e845c9d', 'name': 'VfL Bochum'},
+                    'wolfsburg': {'id': '4eaa11d7', 'name': 'VfL Wolfsburg'},
+                    'mainz': {'id': 'a224b06a', 'name': 'Mainz 05'},
+                    'koeln': {'id': 'bc357bf7', 'name': '1. FC Köln'},
+                    'heidenheim': {'id': '8af0d290', 'name': 'Heidenheim'},
+                    'kiel': {'id': '0c2cd177', 'name': 'Holstein Kiel'},
+                    'pauli': {'id': 'af25dfd5', 'name': 'St. Pauli'}
+                },
+                "bundesliga2": {
+                    'hsv': {'id': '4eaa11d7', 'name': 'Hamburger SV'},
+                    'darmstadt': {'id': 'a486e511', 'name': 'Darmstadt 98'},
+                    # [Weitere 2. Liga Teams...]
+                }
+            },
+            "2023-2024": {
+                "bundesliga": {
+                    'bayern': {'id': '054efa67', 'name': 'Bayern München'},
+                    'leverkusen': {'id': 'c7a9f859', 'name': 'Bayer Leverkusen'},
+                    'stuttgart': {'id': '598bc722', 'name': 'VfB Stuttgart'},
+                    'dortmund': {'id': 'add6f034', 'name': 'Borussia Dortmund'},
+                    'leipzig': {'id': 'acbb6a5b', 'name': 'RB Leipzig'},
+                    'frankfurt': {'id': '4a88b448', 'name': 'Eintracht Frankfurt'},
+                    'bremen': {'id': '62add3bf', 'name': 'Werder Bremen'},
+                    'hoffenheim': {'id': '033ea6b8', 'name': 'TSG Hoffenheim'},
+                    'freiburg': {'id': 'a486e511', 'name': 'SC Freiburg'},
+                    'heidenheim': {'id': '8af0d290', 'name': 'Heidenheim'},
+                    'wolfsburg': {'id': '4eaa11d7', 'name': 'VfL Wolfsburg'},
+                    'mgladbach': {'id': '32f3ee20', 'name': 'Borussia M.Gladbach'},
+                    'bochum': {'id': '5e845c9d', 'name': 'VfL Bochum'},
+                    'augsburg': {'id': '0cdc4311', 'name': 'FC Augsburg'},
+                    'mainz': {'id': 'a224b06a', 'name': 'Mainz 05'},
+                    'koeln': {'id': 'bc357bf7', 'name': '1. FC Köln'},
+                    'union': {'id': '7a41008f', 'name': 'Union Berlin'},
+                    'darmstadt': {'id': 'a486e511', 'name': 'Darmstadt 98'}
+                },
+                "bundesliga2": {
+                    'kiel': {'id': '0c2cd177', 'name': 'Holstein Kiel'},
+                    'pauli': {'id': 'af25dfd5', 'name': 'St. Pauli'},
+                    'hsv': {'id': '4eaa11d7', 'name': 'Hamburger SV'},
+                    # [Weitere 2. Liga Teams...]
+                }
+            }
+        }
+
+    def get_team_data(self, team_id: str, season: str, include_relegation: bool = True) -> Dict:
+        """Erweiterte Teamdaten-Sammlung mit Relegationsspielen"""
+        url = f"{self.base_url}/en/squads/{team_id}/{season}"
+        
+        try:
+            response = requests.get(url, headers=self.headers)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            team_data = {
+                'general': self._get_general_stats(soup),
+                'home_away': self._get_home_away_stats(soup),
+                'form': self._get_recent_form(soup),
+                'scoring': self._get_scoring_stats(soup),
+                'xg_data': self._get_xg_stats(soup),
+                'last_matches': self._get_last_matches(soup),
+                'relegation': self._get_relegation_matches(team_id, season) if include_relegation else None,
+                'detailed_stats': {
+                    'passing': self._get_passing_stats(soup),
+                    'defense': self._get_defensive_stats(soup),
+                    'possession': self._get_possession_stats(soup),
+                    'misc': self._get_misc_stats(soup)
+                }
+            }
+            
+            return team_data
+        except Exception as e:
+            logging.error(f"Fehler beim Abrufen der Teamdaten: {str(e)}")
+            return {}
+
+    def _get_relegation_matches(self, team_id: str, season: str) -> List[Dict]:
+        """Sammelt Relegationsspiel-Daten"""
+        matches = []
+        # Implementierung der Relegationsspiel-Datensammlung
+        return matches
+
+    def _get_passing_stats(self, soup) -> Dict:
+        """Erweiterte Passstatistiken"""
+        stats = {}
+        try:
+            pass_table = soup.find('table', {'id': 'stats_passing_squads'})
+            if pass_table:
+                row = pass_table.find('tbody').find('tr')
+                if row:
+                    cols = row.find_all(['th', 'td'])
+                    stats = {
+                        'total_passes': int(cols[5].text),
+                        'completion_pct': float(cols[8].text.replace('%', '')),
+                        'progressive_passes': int(cols[12].text)
+                    }
+        except Exception as e:
+            logging.error(f"Fehler bei Passstatistiken: {str(e)}")
+        return stats
+
+    # [Weitere Methoden wie im vorherigen Code, aber mit erweiterten Statistiken]
+
+    def collect_all_data(self) -> Dict:
+        """Sammelt Daten aller Teams aus beiden Ligen und beiden Saisons"""
+        all_data = {
+            'last_update': datetime.now().isoformat(),
+            'seasons': {}
+        }
+        
+        for season in self.seasons:
+            all_data['seasons'][season] = {
+                'bundesliga': {},
+                'bundesliga2': {}
+            }
+            
+            for league in ['bundesliga', 'bundesliga2']:
+                for team_key, team_info in self.teams_by_season[season][league].items():
+                    logging.info(f"Sammle Daten für {team_info['name']} ({season}, {league})...")
+                    
+                    all_data['seasons'][season][league][team_key] = {
+                        'name': team_info['name'],
+                        'data': self.get_team_data(team_info['id'], season)
+                    }
+                    time.sleep(3)  # Respektvolle Verzögerung
+                    
+                    # Zwischenspeicherung nach jedem Team
+                    self.save_data(all_data)
+                    
+        return all_data
+
+    def save_data(self, data: Dict, filename: str = 'german_football_data.json'):
+        """Speichert die Daten als JSON"""
+        filepath = os.path.join(self.data_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, indent=2, ensure_ascii=False, fp=f)
+        logging.info(f"Daten wurden in {filepath} gespeichert")
+
+if __name__ == "__main__":
+    scraper = GermanFootballScraper()
+    print("Starte Datensammlung für alle Teams...")
+    all_data = scraper.collect_all_data()
+    print("Datensammlung abgeschlossen!")
